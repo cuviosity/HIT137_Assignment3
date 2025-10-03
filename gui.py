@@ -1,8 +1,8 @@
-
 # this is the window stuff. i tried to make it look like the example but not too serious :)
 import tkinter as tk
 from tkinter import ttk, filedialog, messagebox
 from typing import Optional
+import threading
 from explanations import OOP_EXPLANATIONS
 from models import registry
 
@@ -16,6 +16,7 @@ class App(tk.Tk):
         super().__init__()
         self.title("Tkinter AI GUI (amateur mode)")
         self.geometry("980x720")
+        self.loaded_models = {} 
 
         # i store some state here. globals are bad but also easy
         self.input_mode = tk.StringVar(value="Text")
@@ -43,7 +44,8 @@ class App(tk.Tk):
         ttk.Label(top, text="Model Selection:").pack(side="left")
         self.dd = ttk.Combobox(top, values=registry.get_model_names(), textvariable=self.selected_model_name, state="readonly", width=40)
         self.dd.pack(side="left", padx=6)
-        ttk.Button(top, text="Load Model", command=self.on_load).pack(side="left", padx=4)
+        self.load_btn = ttk.Button(top, text="Load Model", command=self.on_load)
+        self.load_btn.pack(side="left", padx=4)
 
     def _make_main(self):
         main = ttk.Frame(self, padding=7); main.pack(fill="both", expand=True)
@@ -60,8 +62,10 @@ class App(tk.Tk):
         self.input_box = tk.Text(left, height=12); self.input_box.pack(fill="both", expand=True, pady=6)
 
         b = ttk.Frame(left); b.pack(fill="x", pady=4)
-        ttk.Button(b, text="Run Model 1", command=lambda: self._run_fixed("Text: Sentiment (easy one)")).pack(side="left")
-        ttk.Button(b, text="Run Model 2", command=lambda: self._run_fixed("Vision: Image Classifier (the picture one)")).pack(side="left", padx=6)
+        self.run1_btn = ttk.Button(b, text="Run Model 1", command=lambda: self._run_fixed("Text: Sentiment (easy one)"))
+        self.run1_btn.pack(side="left")
+        self.run2_btn = ttk.Button(b, text="Run Model 2", command=lambda: self._run_fixed("Vision: Image Classifier (the picture one)"))
+        self.run2_btn.pack(side="left", padx=6)
         ttk.Button(b, text="Clear", command=self.on_clear).pack(side="right")
 
         ttk.Label(right, text="Output Display:").pack(anchor="w")
@@ -104,13 +108,35 @@ class App(tk.Tk):
 
     def on_load(self):
         name = self.selected_model_name.get()
-        try:
-            self.model = registry.create_model(name)
-            self.model.load()
+        
+        # check cache first
+        if name in self.loaded_models:
+            self.model = self.loaded_models[name]
             self._fill_model_info(name)
-            messagebox.showinfo("ok","model loaded :)")
-        except Exception as e:
-            messagebox.showerror("oops", str(e))
+            messagebox.showinfo("ok", "model already loaded (from cache)")
+            return
+        
+        # disable button while loading
+        self.load_btn.config(text="Loading...", state="disabled")
+        self.dd.config(state="disabled")
+        
+        def load_thread():
+            try:
+                mdl = registry.create_model(name)
+                mdl.load()
+                # cache it
+                self.loaded_models[name] = mdl
+                self.model = mdl
+                # update UI from main thread
+                self.after(0, lambda: self._fill_model_info(name))
+                self.after(0, lambda: messagebox.showinfo("ok","model loaded :)"))
+            except Exception as e:
+                self.after(0, lambda: messagebox.showerror("oops", str(e)))
+            finally:
+                self.after(0, lambda: self.load_btn.config(text="Load Model", state="normal"))
+                self.after(0, lambda: self.dd.config(state="readonly"))
+        
+        threading.Thread(target=load_thread, daemon=True).start()
 
     def _fill_model_info(self, name):
         self.model_info.delete("1.0","end")
@@ -131,17 +157,39 @@ class App(tk.Tk):
             return self.image_path
 
     def _run_fixed(self, fixed_name):
-        try:
-            mdl = registry.create_model(fixed_name); mdl.load()
-        except Exception as e:
-            messagebox.showerror("load fail", str(e)); return
         data = self._get_user_input()
         if not data:
             messagebox.showwarning("hmm","type something or pick an image first")
             return
-        try:
-            result = mdl.run(data)
-            self.output_box.delete("1.0","end")
-            self.output_box.insert("end", pretty_json(result))
-        except Exception as e:
-            messagebox.showerror("run fail", str(e))
+        
+        # disable buttons while running
+        self.run1_btn.config(state="disabled")
+        self.run2_btn.config(state="disabled")
+        self.output_box.delete("1.0","end")
+        self.output_box.insert("end", "Running model, please wait...")
+        
+        def run_thread():
+            try:
+                # check cache first
+                if fixed_name in self.loaded_models:
+                    mdl = self.loaded_models[fixed_name]
+                else:
+                    mdl = registry.create_model(fixed_name)
+                    mdl.load()
+                    self.loaded_models[fixed_name] = mdl
+                
+                result = mdl.run(data)
+                
+                # update UI from main thread
+                self.after(0, lambda: self.output_box.delete("1.0","end"))
+                self.after(0, lambda: self.output_box.insert("end", pretty_json(result)))
+            except Exception as e:
+                self.after(0, lambda: self.output_box.delete("1.0","end"))
+                self.after(0, lambda: self.output_box.insert("end", f"Error: {str(e)}"))
+                self.after(0, lambda: messagebox.showerror("run fail", str(e)))
+            finally:
+                self.after(0, lambda: self.run1_btn.config(state="normal"))
+                self.after(0, lambda: self.run2_btn.config(state="normal"))
+        
+        threading.Thread(target=run_thread, daemon=True).start()
+
