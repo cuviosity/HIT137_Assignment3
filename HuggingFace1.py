@@ -199,23 +199,23 @@ class ImageClassifierGUI:
   - ImageClassifierModel1 and 
     ImageClassifierModel2 both inherit from 
     the AIModel base class (lines 10-23)
-  - They inherit load_model() and 
+  - They will assume load_model() and 
     get_model_info() methods
 
 • Why Encapsulation was applied:
   - Private attributes (_model_name, 
     _pipeline) hide internal data (line 12-13)
-  - Data is only accessed through public 
-    methods, preventing direct manipulation
-  - This protects model integrity and makes 
+  - The data can only be accessed through public 
+    methods, preventing immediate manipulation
+  - This shields model stability and makes 
     code maintainable
 
 • How Polymorphism and Method Overriding 
   are shown:
   - predict() method is defined in parent 
     AIModel class (line 21-23)
-  - Each child class overrides predict() 
-    with its own implementation (lines 31, 41)
+  - Each sub class overrides predict() 
+    with self implementation (lines 31, 41)
   - Same method name, different behaviors - 
     this is polymorphism in action
 
